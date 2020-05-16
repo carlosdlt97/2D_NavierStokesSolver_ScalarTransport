@@ -657,7 +657,7 @@ int main() {
     double** Hy_old = (double**)calloc(ny, sizeof(double*));
 
     double** p = (double**)calloc(ny, sizeof(double*));             //cell centered
-    double** grad_u_over_dt = (double**)calloc(ny, sizeof(double*));
+    double** grad_u_star_over_dt = (double**)calloc(ny, sizeof(double*));
 
     double** step1_mat_x = (double**)calloc(ny, sizeof(double*));
     double** step1_mat_y = (double**)calloc(ny, sizeof(double*));
@@ -682,7 +682,7 @@ int main() {
         Hy_old[i] = (double*)calloc(nx, sizeof(double));
 
         p[i] = (double*)calloc(nx, sizeof(double));
-        grad_u_over_dt[i] = (double*)calloc(nx, sizeof(double));
+        grad_u_star_over_dt[i] = (double*)calloc(nx, sizeof(double));
 
         step1_mat_x[i] = (double*)calloc(nx, sizeof(double));
         step1_mat_y[i] = (double*)calloc(nx, sizeof(double));
@@ -871,18 +871,22 @@ int main() {
     ---------------------------------- Step 2 ----------------------------------
     ------------------------------------------------------------------------- */
 
-    /* Calculating divergence of velocity_star */
-    for (j = 0; j < Ny; j++) {
-        for (i = 0; i < Nx; i++) {
+    /* Calculating the cell-centered divergence of velocity_star divided by dt*/
+    for (j = 0; j < (Ny - 1); j++) {
+        for (i = 0; i < (Nx - 1); i++) {
 
-            grad_u_over_dt[j][i] = ((u_star[j][i + 1] - u_star[j][i]) / dx + (v_star[j + 1][i] - v_star[j][i]) / dy) / dt;
+            grad_u_star_over_dt[j][i] = ((u_star[j][i + 1] - u_star[j][i]) / dx + (v_star[j + 1][i] - v_star[j][i]) / dy) / dt;
 
 
         }
     }
+    /* Right edge */
+    for (j = 0; j < Ny; j++) {
+        i = Nx - 1;
+    }
 
     /* Solving for cell-centered pressure using multigrid acceleration method */
-    Multigrid_solver(grad_u_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS);
+    Multigrid_solver(grad_u_star_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS);
 
 
 
@@ -919,7 +923,7 @@ int main() {
         free(Hy_old[i]);
 
         free(p[i]);
-        free(grad_u_over_dt[i]);
+        free(grad_u_star_over_dt[i]);
 
         free(step1_mat_x[i]);
         free(step1_mat_y[i]);
@@ -934,7 +938,7 @@ int main() {
     free(Hy_old);
 
     free(p);
-    free(grad_u_over_dt);
+    free(grad_u_star_over_dt);
 
     free(step1_mat_x);
     free(step1_mat_y);
