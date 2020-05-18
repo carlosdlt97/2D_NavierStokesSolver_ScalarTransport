@@ -11,16 +11,14 @@
 ======================= n-Step Gauss-Seidel Solver ==========================
 ========================================================================== */
 
-int GS_nstep(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) {
+int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double epsilon, int nGS, int H_cells, int Bj, int Bi) {
 
     /* Initilaizations */
     int i, j;
     double nx = Nx;
     double ny = Ny;
-    double D_x = 1 / nx;
-    double D_y = 1 / ny;
 
-    double  f_norm;
+    double f_norm;
     double integral;
     double lambda = pow(D_x, -2);
     double RHS;    
@@ -40,7 +38,11 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) 
     f_norm = 0; /* compute f_norm */
     for (j = 0; j < Ny; j++) {
         for (i = 0; i < Nx; i++) {
-            f_norm = f_norm + pow(f[j][i], 2);
+
+            if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                f_norm = f_norm + pow(f[j][i], 2);
+            }
+
         }
     }
 
@@ -90,7 +92,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) 
             }
 
 
-            //update corner points
+            /* update corner points ----- NEED TO CHANGE ----- */
             phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
             phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
             phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
@@ -124,6 +126,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) 
 
             }
 
+            /* update corner points ----- NEED TO CHANGE ----- */
             laplace_phi[0][0] = (phi[1][0] + phi[0][1]) * lambda - phi[0][0] * (2 * lambda);
             laplace_phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) * lambda - phi[0][Nx - 1] * (2 * lambda);
             laplace_phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) * lambda - phi[Ny - 1][0] * (2 * lambda);
@@ -162,21 +165,31 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) 
            step += 1;
 
         } while (laplace_phi_minus_f_norm > RHS);
-    }
+    
 
 
-    /* Impose condition that the integral over the domain is equal to zero */
-    integral = 0;
-    for (j = 0; j < Ny; j++) {
-        for (i = 0; i < Nx; i++) {
-            integral += phi[j][i] * D_x * D_y;
+        /* Impose condition that the integral over the domain is equal to zero */
+        integral = 0;
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
+                
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                    integral += phi[j][i] * D_x * D_y;
+                }
+
+            }
         }
-    }
 
-    for (j = 0; j < Ny; j++) {
-        for (i = 0; i < Nx; i++) {
-            phi[j][i] = phi[j][i] - integral / (Nx * Ny);
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
+
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                    phi[j][i] -= integral / (Nx * Ny - pow(H_cells, 2));
+                }
+            
+            }
         }
+
     }
 
 
@@ -377,7 +390,7 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
 
 
     /* ------- RELAXATION ON error ------- */
-    GS_nstep(residual2, error2, half_Nx, half_Ny, epsilon, nGS);
+    GS_nstep(residual2, error2, half_Nx, half_Ny, D_x, D_y, epsilon, nGS);
 
 
 
@@ -442,7 +455,7 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
     }
 
     /* Exit GS solving */
-    finished = GS_nstep(f, phi, Nx, Ny, epsilon, nGS);
+    finished = GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS);
 
 
     for (j = 0; j < Ny; j++) {
@@ -502,7 +515,7 @@ int Multigrid_solver(double** f, double** phi, int Nx, int Ny, int D_x, int D_y,
 
 
     /* ------- RELAXATION ON phi ------- */
-    GS_nstep(f, phi, Nx, Ny, epsilon, nGS);
+    GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS);
 
     do {
         
@@ -574,6 +587,7 @@ int Multigrid_solver(double** f, double** phi, int Nx, int Ny, int D_x, int D_y,
     integral = 0;
     for (j = 0; j < Ny; j++) {
         for (i = 0; i < Nx; i++) {
+            
             integral += phi[j][i] * D_x * D_y;
         }
     }
@@ -622,8 +636,9 @@ int main() {
     int Ny = 100;
     double nx = Nx;
     double ny = Ny;
-    double dx = H / 20;
-    double dy = H / 20;
+    int H_cells = 20;
+    double dx = H / H_cells;
+    double dy = H / H_cells;
 
 
 
@@ -649,9 +664,9 @@ int main() {
     ------------------------------------------------------------------------- */
 
     double** u = (double**)calloc(ny, sizeof(double*));
-    double** v = (double**)calloc(ny, sizeof(double*));
+    double** v = (double**)calloc(ny + 1, sizeof(double*));
     double** u_star = (double**)calloc(ny, sizeof(double*));
-    double** v_star = (double**)calloc(ny, sizeof(double*));
+    double** v_star = (double**)calloc(ny + 1, sizeof(double*));
 
     double** Hx_old = (double**)calloc(ny, sizeof(double*));
     double** Hy_old = (double**)calloc(ny, sizeof(double*));
@@ -673,9 +688,9 @@ int main() {
 
 
     for (i = 0; i < ny; i++) {
-        u[i] = (double*)calloc(nx, sizeof(double));
+        u[i] = (double*)calloc(nx + 1, sizeof(double));
         v[i] = (double*)calloc(nx, sizeof(double));
-        u_star[i] = (double*)calloc(nx, sizeof(double));
+        u_star[i] = (double*)calloc(nx + 1, sizeof(double));
         v_star[i] = (double*)calloc(nx, sizeof(double));
 
         Hx_old[i] = (double*)calloc(nx, sizeof(double));
@@ -687,13 +702,11 @@ int main() {
         step1_mat_x[i] = (double*)calloc(nx, sizeof(double));
         step1_mat_y[i] = (double*)calloc(nx, sizeof(double));
         
-
     }
+ 
 
     
-
-    
-    //sample for loop
+    /* sample for loop */
     for(i = 0; i < Nx; i++) {
         for (j = 0; j < Ny; j++) {
             u[j][i] = 0;
@@ -704,167 +717,13 @@ int main() {
 
 
 
+
     /* -------------------------------------------------------------------------
     ----------------------------------- Step 1 ---------------------------------
     ------------------------------------------------------------------------- */
 
-    for (j = 0; j < Ny; j++) {
-        for (i = 0; i < Nx; i++) {
-            /* Calculating step1_mat_x */
-            if (i > 0 && j > 0 && i < (Nx - 1) && j < (Ny - 1)) {  /* At interior points except at the edges  */
-                u_cc = (u[j][i] + u[j][i + 1]) / 2;
-                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
-                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
-
-                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
-
-                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (i == 0) {      /* At the left wall  */
-                u_cc = (u[j][i] + u[j][i + 1]) / 2;
-                u_cc_im1 = U_inlet;
-
-                u_s = U_inlet;
-                v_s = 0;
-                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
-                v_s_jp1 = 0;
-
-                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
-
-                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (i == Nx - 1) {     /* At the right wall  */
-                u_cc = u[j][i];
-                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
-                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
-
-                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
-
-                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (j == 0) {      /* At the bottom wall  */
-                u_cc = (u[j][i] + u[j][i + 1]) / 2;
-                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
-
-                u_s = u[j][i];     //this could also be set to zero
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
-                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
-
-                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
-
-                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j][i]) / pow(dy, 2)));
-            }
-            else if (j == Ny - 1) {    /* At the top lid  */
-                u_cc = (u[j][i] + u[j][i + 1]) / 2;
-                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_jp1 = 0;
-                v_s_jp1 = 0;
-
-                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
-
-                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
-            }
-
-
-
-
-
-
-            /* Calculating step1_mat_y */
-            if (i > 0 && j > 0 && i < (Nx - 1) && j < (Ny - 1)) {  /* At interior points except at the edges  */
-                v_cc = (v[j][i] + v[j + 1][i]) / 2;
-                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
-                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
-
-                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
-
-                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (j == 0) {    /* At the bottom wall  */
-                v_cc = (v[j][i] + v[j + 1][i]) / 2;
-                v_cc_jm1 = 0;
-
-                u_s = 0;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_ip1 = 0;
-                v_s_ip1 = 0;
-
-                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
-
-                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + (v[j + 1][i] - 2 * v[j][i] + v[j][i]) / pow(dy, 2)));
-            }
-            else if (j == Ny - 1) {     /* At the top wall  */
-                v_cc = (v[j][i] + 0) / 2;
-                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
-                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
-
-                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
-
-                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + (v[j][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (i == 0) {      /* At left wall  */
-                v_cc = (v[j][i] + v[j + 1][i]) / 2;
-                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
-
-                u_s = U_inlet;
-                v_s = 0;
-                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
-                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
-
-                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
-
-                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i]) / pow(dx, 2) + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
-            }
-            else if (i == Nx - 1) {     /* At the right wall  */
-                v_cc = (v[j][i] + v[j + 1][i]) / 2;
-                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
-
-                u_s = (u[j][i] + u[j - 1][i]) / 2;
-                v_s = (v[j][i] + v[j][i - 1]) / 2;
-                u_s_ip1 = u_s;
-                v_s_ip1 = v_s;
-
-                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
-
-                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
-            }
-        }
-    }
-
-    //deal with corner points for step1_mat_x and step1_mat_y
-
-
-    //vectorize step1_mat_x and step1_mat_y
-
-
-    //tridiagonal solve for du_ss and dv_ss
-
-
-    //tridiagonal solve for du_s and dv_s
-
-
-    //solve for u_star
-
+    
+    /* Ignore for now until it is working */
 
 
     /* -------------------------------------------------------------------------
@@ -872,17 +731,13 @@ int main() {
     ------------------------------------------------------------------------- */
 
     /* Calculating the cell-centered divergence of velocity_star divided by dt*/
-    for (j = 0; j < (Ny - 1); j++) {
-        for (i = 0; i < (Nx - 1); i++) {
-
+    for (j = 0; j < Ny; j++) {
+        for (i = 0; i < Nx; i++) {
+            
             grad_u_star_over_dt[j][i] = ((u_star[j][i + 1] - u_star[j][i]) / dx + (v_star[j + 1][i] - v_star[j][i]) / dy) / dt;
 
 
         }
-    }
-    /* Right edge */
-    for (j = 0; j < Ny; j++) {
-        i = Nx - 1;
     }
 
     /* Solving for cell-centered pressure using multigrid acceleration method */
