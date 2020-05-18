@@ -5,15 +5,21 @@
 
 int main() {
 
-    int i;
+    int i, j;
+    int Ni = 10;
+    int Nj = 3;
+    double ni = Ni;
+    double nj = Nj;
 
-    double** num = (double**)calloc(12, sizeof(double*));
+    double** num = (double**)calloc(nj, sizeof(double*));
 
-    for (i = 0; i < 12; i++) {
-        num[i] = (double*)calloc(20, sizeof(double));
+    for (j = 0; j < nj; j++) {
+        num[j] = (double*)calloc(ni, sizeof(double));
     }
 
-    printf("%f\n", num[5][2]);
+    for (j = 1; j < Nj - 1; j++) {
+        printf("check\n");
+    }
 
     return 0;
 }
