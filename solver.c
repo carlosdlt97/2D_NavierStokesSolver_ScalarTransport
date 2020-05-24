@@ -5,11 +5,69 @@
 #include <time.h>
 #include <string.h>
 
-/* TASKS FOR n-step GS Solver
-1. flat and tall void calculations
-2. all >3x3 domain calcualtions
-3. laplace phi and integral for all domain sizes (1x1 --> >3x3) 
- */
+
+double* TriDiag_GaussElim(int size, double dx_or_dy, double dt, double Re, double* d, int right_outlet, int solving_for_du_s) {
+
+    ////input size should be Nx
+    ////should pass in d of whole row except for first point (should be size:(size - 1) )
+    ////right_outlet = 1 if the right ourlet boundary is to the right of what we are looking at
+
+    int i;
+
+    double* b = (double*)calloc(size-1, sizeof(double));
+    double* a = (double*)calloc(size-1, sizeof(double));
+    double* c = (double*)calloc(size-1, sizeof(double));
+
+
+    //initialize tridiagonal matrix
+    for (i = 0; i < size - 1; i++) { 
+        b[i] = 1 + dt / (Re * pow(dx_or_dy, 2) );
+        a[i] = -dt / (2 * Re * pow(dx_or_dy,2) );
+        c[i] = -dt / (2 * Re * pow(dx_or_dy,2) );
+    }
+
+
+    //if we have the outlet boundary in our domain
+    if (right_outlet == 1)  {
+        b[size - 2] = 1 + dt / (2 * Re * pow(dx_or_dy,2));
+    }
+
+    //if we are solving for du_s 
+    if (solving_for_du_s == 1) {
+        b[0] = 1 + 3 * dt / (2 * Re * pow(dx_or_dy, 2));
+        b[size - 2] = 1 + 3 * dt / (2 * Re * pow(dx_or_dy, 2));
+    }
+
+
+
+    //forward elimination
+    for (i = 1; i < size - 1; i++) {
+        b[i] = b[i] - c[i-1] * a[i] / b[i - 1];
+        
+        d[i] = d[i] - d[i-1] * a[i] / b[i-1]; 
+    }
+
+
+    //back substitution
+    d[size - 2] = d[size - 2] / b[size - 2];
+
+    for (i = size - 3; i > -1; i--) {
+        d[i] = ( d[i] - c[i] * d[i+1] ) / b[i];
+    }
+
+
+
+    free(a);
+    free(b);
+    free(c);
+
+
+    return d;
+
+}
+
+
+
 
 /* ==========================================================================
 ======================= n-Step Gauss-Seidel Solver ==========================
@@ -39,111 +97,431 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
 
     /* Solving -------------------------------------------------------------------------------- */
 
-    f_norm = 0; /* compute f_norm */
-    for (j = 0; j < Ny; j++) {
-        for (i = 0; i < Nx; i++) {
+    if (Nx != 1 && Ny != 1) {
+        f_norm = 0; /* compute f_norm */
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
 
-            if ( ((j < Bj) || ( j > (Bj + H_cells - 1))) && ((i < Bi) || (i > (Bi + H_cells - 1)))  ) {     /* if not inside the void... */
-                f_norm = f_norm + pow(f[j][i], 2);
+                if ( ((j < Bj) || ( j > (Bj + H_cells - 1))) && ((i < Bi) || (i > (Bi + H_cells - 1)))  ) {     /* if not inside the void... */
+                    f_norm = f_norm + pow(f[j][i], 2);
+                }
+
             }
-
         }
+        
+        f_norm = sqrt(f_norm);
+
     }
 
-    f_norm = sqrt(f_norm);
 
 
-    /* ================================================= CALCULATING PHI ================================================= */
-    if (Nx == 1 || Ny == 1) { /* ===================== SKIP ALL CONDITION ===================== */
-        
-        /* Skip everything */
+    do {
 
-    }
-    else if (Nx == 2 || Ny == 2) { /* ===================== THIN DOMAIN CONDITION ===================== */
-        
-        if (Nx == 2 && Ny == 2) { /* ======= If domain is a 2x2 square ======= */
-            /* Only corner calculations are needed */
-
-            /* 1st corner calculations */
-            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                /* At left void boundary (to the left of the void) */
-                phi[0][0] = phi[1][0] - f[0][0] / lambda;
-            }
-            else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                /* At bottom void boundary (beneath the void) */
-                phi[0][0] = phi[0][1] - f[0][0] / lambda;
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
-
-            }
-
-            /* 2nd corner calculations */
-            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                /* At right void boundary */
-                phi[0][Nx - 1] = phi[1][Nx - 1] - f[0][Nx - 1] / lambda;
-            }
-            else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                /* At bottom void boundary */
-                phi[0][Nx - 1] = phi[0][Nx - 2] - f[0][Nx - 1] / lambda;
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
-
-            }
-
-            /* 3rd corner calculations */
-            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                /* At left void boundary */
-                phi[Ny - 1][0] = phi[Ny - 2][0] - f[Ny - 1][0] / lambda;
-            }
-            else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                /* At top void boundary */
-                phi[Ny - 1][0] = phi[Ny - 1][1] - f[Ny - 1][0] / lambda;
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
-
-            }
-
-            /* 4th corner calculations */
-            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                /* At right void boundary */
-                phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
-            }
-            else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                /* At top void boundary */
-                phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
-
-            }
+        /* ================================================= CALCULATING PHI ================================================= */
+        if (Nx == 1 || Ny == 1) { /* ===================== SKIP ALL CONDITION ===================== */
+            
+            /* Skip everything */
 
         }
-        else { /* ======= If domain is not square ======= */
+        else if (Nx == 2 || Ny == 2) { /* ===================== THIN DOMAIN CONDITION ===================== */
+            
+            if (Nx == 2 && Ny == 2) { /* ======= If domain is a 2x2 square ======= */
+                /* Only corner calculations are needed */
+
+                /* 1st corner calculations */
+                if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                    /* At left void boundary (to the left of the void) */
+                    phi[0][0] = phi[1][0] - f[0][0] / lambda;
+                }
+                else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                    /* At bottom void boundary (beneath the void) */
+                    phi[0][0] = phi[0][1] - f[0][0] / lambda;
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
+
+                }
+
+                /* 2nd corner calculations */
+                if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                    /* At right void boundary */
+                    phi[0][Nx - 1] = phi[1][Nx - 1] - f[0][Nx - 1] / lambda;
+                }
+                else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                    /* At bottom void boundary */
+                    phi[0][Nx - 1] = phi[0][Nx - 2] - f[0][Nx - 1] / lambda;
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
+
+                }
+
+                /* 3rd corner calculations */
+                if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                    /* At left void boundary */
+                    phi[Ny - 1][0] = phi[Ny - 2][0] - f[Ny - 1][0] / lambda;
+                }
+                else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                    /* At top void boundary */
+                    phi[Ny - 1][0] = phi[Ny - 1][1] - f[Ny - 1][0] / lambda;
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
+
+                }
+
+                /* 4th corner calculations */
+                if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                    /* At right void boundary */
+                    phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
+                }
+                else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                    /* At top void boundary */
+                    phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
+
+                }
+
+            }
+            else { /* ======= If domain is not square ======= */
+                /* Loop through entire space */
+                for (j = 0; j < Ny; j++) {
+                    for (i = 0; i < Nx; i++) {
+
+                        if (i == 0 && j == 0) {
+                            /* 1st corner calculations */
+                            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                                /* At left void boundary (to the left of the void) */
+                                phi[0][0] = phi[1][0] - f[0][0] / lambda;
+                            }
+                            else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                                /* At bottom void boundary (beneath the void) */
+                                phi[0][0] = phi[0][1] - f[0][0] / lambda;
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
+
+                            }
+
+                        }
+                        else if (i == Nx - 1 && j == 0) {
+                            /* 2nd corner calculations */
+                            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                                /* At right void boundary */
+                                phi[0][Nx - 1] = phi[1][Nx - 1] - f[0][Nx - 1] / lambda;
+                            }
+                            else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                                /* At bottom void boundary */
+                                phi[0][Nx - 1] = phi[0][Nx - 2] - f[0][Nx - 1] / lambda;
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
+
+                            }
+
+                        }
+                        else if (i == 0 && j == Ny - 1) {
+                            /* 3rd corner calculations */
+                            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                                /* At left void boundary */
+                                phi[Ny - 1][0] = phi[Ny - 2][0] - f[Ny - 1][0] / lambda;
+                            }
+                            else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                                /* At top void boundary */
+                                phi[Ny - 1][0] = phi[Ny - 1][1] - f[Ny - 1][0] / lambda;
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
+
+                            }
+
+                        }
+                        else if (i == Nx - 1 && j ==  Ny - 1) {
+                            /* 4th corner calculations */
+                            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                                /* At right void boundary */
+                                phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
+                            }
+                            else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                                /* At top void boundary */
+                                phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
+
+                            }
+
+                        }
+                        else if (Nx == 2) { /* ======= For a tall domain ======= */
+                            /* Edge calculations for Nx = 2 - there is no iterior */
+                            if (i == 0) { /* Left */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                                }
+                            }
+                            else if (i == Nx - 1) { /* Right */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                                }
+                                
+                            }
+
+                        }
+                        else if (Ny == 2) { /* ======= For a flat domain ======= */
+                            /* Edge calculations for Ny = 2 - there is no iterior */
+                            if (j == 0) { /* Bottom */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                                }
+                            
+                            }
+                            else if (j == Ny - 1) { /* Top */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                                }
+                            
+                            }
+
+                        }
+
+                    }
+                }
+            }
+        }
+        else if (Nx >= 3 && Ny >= 3) { /* ===================== NORMAL DOMAIN CONDITION ===================== */
+
             /* Loop through entire space */
             for (j = 0; j < Ny; j++) {
                 for (i = 0; i < Nx; i++) {
 
-                    if (i == 0 && j == 0) {
-                        /* 1st corner calculations */
+                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
+                        /* Interior calculations */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                        } 
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                        } 
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                        } 
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
+                        } 
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 4 - f[j][i] / (4 * lambda);
+                        
+                        }
+
+                    }
+                    else if (j == 0 && i != 0 && i != Nx - 1) {
+                        /* Edge calcualtions on bottom */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                        }
+
+                    }
+                    else if (j == Ny - 1 && i != 0 && i != Nx - 1) {
+                        /* Edge calcualtions on top */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                        }
+
+                    }
+                    else if (i == 0 && j != 0 && j != Ny - 1) {
+                        /* Edge calcualtions on left */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                            
+                        }
+
+                    }
+                    else if (i == Nx - 1 && j != 0 && j != Ny - 1) {
+                        /* Edge calcualtions on right */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+
+                        }
+
+                    }
+                    else if (i == 0 && j == 0) {
+                        /* 1st corner calculation */
                         if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
                             /* Inside void - skip this position */
                         }
@@ -204,434 +582,433 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                     }
                     else if (i == Nx - 1 && j ==  Ny - 1) {
                         /* 4th corner calculations */
-                        if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
+                            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                                /* At right void boundary */
+                                phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
+                            }
+                            else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                                /* At top void boundary */
+                                phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
+
+                            }
+
+                    }
+
+                }
+            }   
+        }
+        else {
+            /* This can only happen in the event of an error in the values of Nx and Ny.  Print information to user */
+            printf("ERROR IN VALUES OF Nx AND Ny AT PHI CALCULATIONS: Either at least one is not an integer,\n at least one is 0, or at least one is negative.\n");
+
+        }
+
+
+
+        /* ================================================= CALCULATING LAPLACE PHI ================================================= */
+        if (Nx == 1 || Ny == 1) { /* ===================== SKIP ALL CONDITION ===================== */
+            
+            /* Skip everything */
+
+        }
+        else if (Nx == 2 || Ny == 2) { /* ===================== THIN DOMAIN CONDITION ===================== */
+            
+            if (Nx == 2 && Ny == 2) { /* ======= If domain is a 2x2 square ======= */
+                /* Only corner calculations are needed */
+
+                /* 1st corner calculation */
+                if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                    /* At left void boundary (to the left of the void) */
+                    laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
+                }
+                else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                    /* At bottom void boundary (beneath the void) */
+                    laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+
+                }
+
+                /* 2nd corner calculations */
+                if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                    /* At right void boundary */
+                    laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
+                }
+                else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                    /* At bottom void boundary */
+                    laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+
+                }
+
+                /* 3rd corner calculations */
+                if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                    /* At left void boundary */
+                }
+                else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                    /* At top void boundary */
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+
+                }
+
+                /* 4th corner calculations */
+                if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                    /* Inside void - skip this position */
+                }
+                else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                    /* At right void boundary */
+                }
+                else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                    /* At top void boundary */
+                }
+                else {
+                    /* Not in void or at void boundary - calculate normally */
+
+                }
+
+            }
+            else { /* ======= If domain is not square ======= */
+                /* Loop through entire space */
+                for (j = 0; j < Ny; j++) {
+                    for (i = 0; i < Nx; i++) {
+
+                        if (i == 0 && j == 0) {
+                            /* 1st corner calculation */
+                            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                                /* At left void boundary (to the left of the void) */
+                                laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
+                            }
+                            else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                                /* At bottom void boundary (beneath the void) */
+                                laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+
+                            }
+
+                        }
+                        else if (i == Nx - 1 && j == 0) {
+                            /* 2nd corner calculations */
+                            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
+                                /* Inside void - skip this position */
+                            }
+                            else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
+                                /* At right void boundary */
+                                laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
+                            }
+                            else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                                /* At bottom void boundary */
+                                laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
+                            }
+                            else {
+                                /* Not in void or at void boundary - calculate normally */
+                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+
+                            }
+
+                        }
+                        else if (i == 0 && j == Ny - 1) {
+                            /* 3rd corner calculations */
+                        if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
                             /* Inside void - skip this position */
                         }
-                        else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                            /* At right void boundary */
-                            phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
+                        else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
                         }
-                        else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
+                        else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
                             /* At top void boundary */
-                            phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
+                            laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
                         }
                         else {
                             /* Not in void or at void boundary - calculate normally */
-                            phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
 
                         }
 
-                    }
-                    else if (Nx == 2) { /* ======= For a tall domain ======= */
-                        /* Edge calculations for Nx = 2 - there is no iterior */
-                        if (i == 0) { /* Left */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At top void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                            }
                         }
-                        else if (i == Nx - 1) { /* Right */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                        else if (i == Nx - 1 && j ==  Ny - 1) {
+                            /* 4th corner calculations */
+                            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
                                 /* Inside void - skip this position */
                             }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
                                 /* At right void boundary */
-                                phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
                             }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
                                 /* At top void boundary */
-                                phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
+                                laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
                             }
                             else {
                                 /* Not in void or at void boundary - calculate normally */
-                                phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
 
                             }
+
+                        }
+                        else if (Nx == 2) { /* ======= For a tall domain ======= */
+                            /* Edge calculations for Nx = 2 - there is no iterior */
+                            if (i == 0) { /* Left */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+                                    
+                                }
+                            }
+                            else if (i == Nx - 1) { /* Right */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                                }
+                                
+                            }
+
+                        }
+                        else if (Ny == 2) { /* ======= For a flat domain ======= */
+                            /* Edge calculations for Ny = 2 - there is no iterior */
+                            if (j == 0) { /* Bottom */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At bottom void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                                }
                             
+                            }
+                            else if (j == Ny - 1) { /* Top */
+                                if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                                    /* Inside void - skip this position */
+                                }
+                                else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                                    /* At top void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At right void boundary */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                                    /* At left void boundary */
+                                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                                }
+                                else {
+                                    /* Not in void or at void boundary - calculate normally */
+                                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                                }
+                            
+                            }
+
                         }
 
                     }
-                    else if (Ny == 2) { /* ======= For a flat domain ======= */
-                        /* Edge calculations for Ny = 2 - there is no iterior */
-                        if (j == 0) { /* Bottom */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At right void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                            }
-                        
-                        }
-                        else if (j == Ny - 1) { /* Top */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At top void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At right void boundary */
-                                phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                            }
-                        
-                        }
-
-                    }
-
                 }
             }
         }
-    }
-    else if (Nx >= 3 && Ny >= 3) { /* ===================== NORMAL DOMAIN CONDITION ===================== */
+        else if (Nx >= 3 && Ny >= 3) { /* ===================== NORMAL DOMAIN CONDITION ===================== */
 
-        /* Loop through entire space */
-        for (j = 0; j < Ny; j++) {
-            for (i = 0; i < Nx; i++) {
-
-                if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
-                    /* Interior calculations */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-                    } 
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-                    } 
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-                    } 
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
-                    } 
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 4 - f[j][i] / (4 * lambda);
-                    
-                    }
-
-                }
-                else if (j == 0 && i != 0 && i != Nx - 1) {
-                    /* Edge calcualtions on bottom */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                    }
-
-                }
-                else if (j == Ny - 1 && i != 0 && i != Nx - 1) {
-                    /* Edge calcualtions on top */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                    }
-
-                }
-                else if (i == 0 && j != 0 && j != Ny - 1) {
-                    /* Edge calcualtions on left */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-                        
-                    }
-
-                }
-                else if (i == Nx - 1 && j != 0 && j != Ny - 1) {
-                    /* Edge calcualtions on right */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) / 2 - f[j][i] / (2 * lambda);
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                    }
-
-                }
-                else if (i == 0 && j == 0) {
-                    /* 1st corner calculation */
-                    if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                        /* At left void boundary (to the left of the void) */
-                        phi[0][0] = phi[1][0] - f[0][0] / lambda;
-                    }
-                    else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                        /* At bottom void boundary (beneath the void) */
-                        phi[0][0] = phi[0][1] - f[0][0] / lambda;
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
-
-                    }
-
-                }
-                else if (i == Nx - 1 && j == 0) {
-                    /* 2nd corner calculations */
-                    if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        phi[0][Nx - 1] = phi[1][Nx - 1] - f[0][Nx - 1] / lambda;
-                    }
-                    else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        phi[0][Nx - 1] = phi[0][Nx - 2] - f[0][Nx - 1] / lambda;
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
-
-                    }
-
-                }
-                else if (i == 0 && j == Ny - 1) {
-                    /* 3rd corner calculations */
-                    if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        phi[Ny - 1][0] = phi[Ny - 2][0] - f[Ny - 1][0] / lambda;
-                    }
-                    else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        phi[Ny - 1][0] = phi[Ny - 1][1] - f[Ny - 1][0] / lambda;
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
-
-                    }
-
-                }
-                else if (i == Nx - 1 && j ==  Ny - 1) {
-                    /* 4th corner calculations */
-                        if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
-                            /* Inside void - skip this position */
-                        }
-                        else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                            /* At right void boundary */
-                            phi[Ny - 1][Nx - 1] = phi[Ny - 2][Nx - 1] - f[Ny - 1][Nx - 1] / lambda;
-                        }
-                        else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                            /* At top void boundary */
-                            phi[Ny - 1][Nx - 1] = phi[Ny - 1][Nx - 2] - f[Ny - 1][Nx - 1] / lambda;
-                        }
-                        else {
-                            /* Not in void or at void boundary - calculate normally */
-                            phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
-
-                        }
-
-                }
-
-            }
-        }   
-    }
-    else {
-        /* This can only happen in the event of an error in the values of Nx and Ny.  Print information to user */
-        printf("ERROR IN VALUES OF Nx AND Ny: Either at least one is not an integer,\n at least one is 0, or at least one is negative.\n");
-
-    }
-
-
-
-    /* ================================================= CALCULATING LAPLACE PHI ================================================= */
-    if (Nx == 1 || Ny == 1) { /* ===================== SKIP ALL CONDITION ===================== */
-        
-        /* Skip everything */
-
-    }
-    else if (Nx == 2 || Ny == 2) { /* ===================== THIN DOMAIN CONDITION ===================== */
-        
-        if (Nx == 2 && Ny == 2) { /* ======= If domain is a 2x2 square ======= */
-            /* Only corner calculations are needed */
-
-            /* 1st corner calculation */
-            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                /* At left void boundary (to the left of the void) */
-                laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
-            }
-            else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                /* At bottom void boundary (beneath the void) */
-                laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-            }
-
-            /* 2nd corner calculations */
-            if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                /* At right void boundary */
-                laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
-            }
-            else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                /* At bottom void boundary */
-                laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-                laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-            }
-
-            /* 3rd corner calculations */
-            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                /* At left void boundary */
-            }
-            else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                /* At top void boundary */
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-
-            }
-
-            /* 4th corner calculations */
-            if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                /* Inside void - skip this position */
-            }
-            else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                /* At right void boundary */
-            }
-            else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                /* At top void boundary */
-            }
-            else {
-                /* Not in void or at void boundary - calculate normally */
-
-            }
-
-        }
-        else { /* ======= If domain is not square ======= */
             /* Loop through entire space */
             for (j = 0; j < Ny; j++) {
                 for (i = 0; i < Nx; i++) {
 
-                    if (i == 0 && j == 0) {
+                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
+                        /* Interior calculations */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+                        } 
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+                        } 
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+                        } 
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
+                        } 
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 4 * lambda * phi[j][i];
+                        }
+
+                    }
+                    else if (j == 0 && i != 0 && i != Nx - 1) {
+                        /* Edge calcualtions on bottom */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                        }
+
+                    }
+                    else if (j == Ny - 1 && i != 0 && i != Nx - 1) {
+                        /* Edge calcualtions on top */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                        }
+
+                    }
+                    else if (i == 0 && j != 0 && j != Ny - 1) {
+                        /* Edge calcualtions on left */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+                            
+                        }
+
+                    }
+                    else if (i == Nx - 1 && j != 0 && j != Ny - 1) {
+                        /* Edge calcualtions on right */
+                        if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At bottom void boundary */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
+                            /* At right void boundary */
+                            laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
+
+                        }
+
+                    }
+                    else if (i == 0 && j == 0) {
                         /* 1st corner calculation */
                         if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
                             /* Inside void - skip this position */
@@ -673,22 +1050,22 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                     }
                     else if (i == 0 && j == Ny - 1) {
                         /* 3rd corner calculations */
-                    if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
-                    }
-                    else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
+                        if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
+                            /* Inside void - skip this position */
+                        }
+                        else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
+                            /* At left void boundary */
+                            laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
+                        }
+                        else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
+                            /* At top void boundary */
+                            laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
+                        }
+                        else {
+                            /* Not in void or at void boundary - calculate normally */
+                            laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
 
-                    }
+                        }
 
                     }
                     else if (i == Nx - 1 && j ==  Ny - 1) {
@@ -711,448 +1088,59 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         }
 
                     }
-                    else if (Nx == 2) { /* ======= For a tall domain ======= */
-                        /* Edge calculations for Nx = 2 - there is no iterior */
-                        if (i == 0) { /* Left */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At top void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-                                
-                            }
-                        }
-                        else if (i == Nx - 1) { /* Right */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At right void boundary */
-                                laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At top void boundary */
-                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                            }
-                            
-                        }
-
-                    }
-                    else if (Ny == 2) { /* ======= For a flat domain ======= */
-                        /* Edge calculations for Ny = 2 - there is no iterior */
-                        if (j == 0) { /* Bottom */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At bottom void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At right void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                            }
-                        
-                        }
-                        else if (j == Ny - 1) { /* Top */
-                            if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                                /* Inside void - skip this position */
-                            }
-                            else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                                /* At top void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At right void boundary */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                                /* At left void boundary */
-                                laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                            }
-                            else {
-                                /* Not in void or at void boundary - calculate normally */
-                                laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                            }
-                        
-                        }
-
-                    }
 
                 }
-            }
+            }   
         }
-    }
-    else if (Nx >= 3 && Ny >= 3) { /* ===================== NORMAL DOMAIN CONDITION ===================== */
+        else {
+            /* This can only happen in the event of an error in the values of Nx and Ny.  Print information to user */
+            printf("ERROR IN VALUES OF Nx AND Ny AT LAPLACE PHI CALCULATIONS:\nEither at least one is not an integer,\n at least one is 0, or at least one is negative.\n");
 
-        /* Loop through entire space */
+        }
+   
+
+    
+
+        /* compute the norm */
+        laplace_phi_minus_f_norm = 0;
+
         for (j = 0; j < Ny; j++) {
             for (i = 0; i < Nx; i++) {
 
-                if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
-                    /* Interior calculations */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-                    } 
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-                    } 
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-                    } 
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
-                    } 
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 4 * lambda * phi[j][i];
-                    }
-
-                }
-                else if (j == 0 && i != 0 && i != Nx - 1) {
-                    /* Edge calcualtions on bottom */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (j == Ny - 1 && i != 0 && i != Nx - 1) {
-                    /* Edge calcualtions on top */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (i == 0 && j != 0 && j != Ny - 1) {
-                    /* Edge calcualtions on left */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi - 1 && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-                        
-                    }
-
-                }
-                else if (i == Nx - 1 && j != 0 && j != Ny - 1) {
-                    /* Edge calcualtions on right */
-                    if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (j == Bj - 1 && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (i == Bi + H_cells && j >= Bj && j <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j - 1][i] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else if (j == Bj + H_cells && i >= Bi && i <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (i == 0 && j == 0) {
-                    /* 1st corner calculation */
-                    if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (0 == Bi - 1 && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                        /* At left void boundary (to the left of the void) */
-                        laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
-                    }
-                    else if (0 == Bj - 1 && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                        /* At bottom void boundary (beneath the void) */
-                        laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (i == Nx - 1 && j == 0) {
-                    /* 2nd corner calculations */
-                    if ( ((0 >= Bj) && (0 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (Nx - 1 == Bi + H_cells && 0 >= Bj && 0 <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j + 1][i]) * lambda - lambda * phi[j][i];
-                    }
-                    else if (0 == Bj - 1 && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                        /* At bottom void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j + 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (i == 0 && j == Ny - 1) {
-                    /* 3rd corner calculations */
-                    if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((0 >= Bi) && (0 <= (Bi + H_cells - 1)))  ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (0 == Bi - 1 && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                        /* At left void boundary */
-                        laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
-                    }
-                    else if (Ny - 1 == Bj + H_cells && 0 >= Bi && 0 <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i + 1]) * lambda - lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-                    }
-
-                }
-                else if (i == Nx - 1 && j ==  Ny - 1) {
-                    /* 4th corner calculations */
-                    if ( ((Ny - 1 >= Bj) && (Ny - 1 <= (Bj + H_cells - 1))) && ((Nx - 1 >= Bi) && (Nx - 1 <= (Bi + H_cells - 1))) ) {
-                        /* Inside void - skip this position */
-                    }
-                    else if (Nx - 1 == Bi + H_cells && Ny - 1 >= Bj && Ny - 1 <= Bj + H_cells - 1) {
-                        /* At right void boundary */
-                        laplace_phi[j][i] = (phi[j - 1][i]) * lambda - lambda * phi[j][i];
-                    }
-                    else if (Ny - 1 == Bj + H_cells && Nx - 1 >= Bi && Nx - 1 <= Bi + H_cells - 1) {
-                        /* At top void boundary */
-                        laplace_phi[j][i] = (phi[j][i - 1]) * lambda - lambda * phi[j][i];
-                    }
-                    else {
-                        /* Not in void or at void boundary - calculate normally */
-                        laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i]) * lambda - 2 * lambda * phi[j][i];
-
-                    }
-
-                }
-
-            }
-        }   
-    }
-    else {
-        /* This can only happen in the event of an error in the values of Nx and Ny.  Print information to user */
-        printf("ERROR IN VALUES OF Nx AND Ny AT LAPLACE PHI CALCULATIONS:\nEither at least one is not an integer,\n at least one is 0, or at least one is negative.\n");
-
-    }
-
-    if (Nx > 1 && Ny > 1) {
-
-        do {
-
-            if (Nx > 2 && Ny > 2) {
-
-                for (j = 1; j < Ny - 1; j++) {
-                    for (i = 1; i < Nx - 1; i++) {
-                        phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 4 - f[j][i] / (4 * lambda);
-
-                    }
-                }
                 
-
-                //update left boundary values
-                for (j = 1; j < Ny - 1; j++) {
-                    i = 0;
-                    phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                }
-
-                //update right boundary values
-                for (j = 1; j < Ny - 1; j++) {
-                    i = Nx - 1;
-                    phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
-                }
-
-                //update bottom boundary values 
-                for (i = 1; i < Nx - 1; i++) {
-                    j = 0;
-                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-                }
-
-                //update top boundary values
-                for (i = 1; i < Nx - 1; i++) {
-                    j = Ny - 1;
-                    phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
-                }
-
-            }
-
-
-            /* update corner points ----- NEED TO CHANGE ----- */
-            phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
-            phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
-            phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
-            phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
-
-            
-            if (Nx > 2 && Ny > 2) {
-
-                //compute laplace_p matrix
-                for (j = 1; j < Ny - 1; j++) {
-                    for (i = 1; i < Nx - 1; i++) {
-                        laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 4 * lambda * phi[j][i];
-                    }
-                }
-                for (j = 1; j < Ny - 1; j++) {
-                    i = 0;
-                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - phi[j][i] * (3 * lambda);
-                }
-                for (j = 1; j < Ny - 1; j++) {
-                    i = Nx - 1;
-                    laplace_phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - phi[j][i] * (3 * lambda);
-                }
-                for (i = 1; i < Nx - 1; i++) {
-                    j = 0;
-                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - phi[j][i] * (3 * lambda);
-                }
-                for (i = 1; i < Nx - 1; i++) {
-                    j = Ny - 1;
-                    laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) * lambda - phi[j][i] * (3 * lambda);
-                }
-
-            }
-
-            /* update corner points ----- NEED TO CHANGE ----- */
-            laplace_phi[0][0] = (phi[1][0] + phi[0][1]) * lambda - phi[0][0] * (2 * lambda);
-            laplace_phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) * lambda - phi[0][Nx - 1] * (2 * lambda);
-            laplace_phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) * lambda - phi[Ny - 1][0] * (2 * lambda);
-            laplace_phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) * lambda - phi[Ny - 1][Nx - 1] * (2 * lambda);
-
-
-
-            //compute the norm
-            laplace_phi_minus_f_norm = 0;
-
-            for (j = 0; j < Ny; j++) {
-                for (i = 0; i < Nx; i++) {
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
                     laplace_phi_minus_f_norm = laplace_phi_minus_f_norm + pow((laplace_phi[j][i] - f[j][i]), 2);
                 }
+
             }
+        }
 
-            
+        
 
-            laplace_phi_minus_f_norm = sqrt(laplace_phi_minus_f_norm);
-
-
-            if (f_norm == 0) {
-                RHS = epsilon;
-            }
-            else {
-                RHS = epsilon * f_norm;
-            }
+        laplace_phi_minus_f_norm = sqrt(laplace_phi_minus_f_norm);
 
 
-            /* break out of the loop if the max number of steps has been reached */
-            if (step == max_num_steps) {
-                break;
-            }
+        if (f_norm == 0) {
+            RHS = epsilon;
+        }
+        else {
+            RHS = epsilon * f_norm;
+        }
 
 
-           step += 1;
+        /* break out of the loop if the max number of steps has been reached */
+        if (step == max_num_steps) {
+            break;
+        }
 
-        } while (laplace_phi_minus_f_norm > RHS);
+
+        step += 1;
+
+    } while (laplace_phi_minus_f_norm > RHS && Nx != 1 && Ny != 1);
     
 
 
+    if (Nx != 1 && Ny != 1) {
         /* Impose condition that the integral over the domain is equal to zero */
         integral = 0;
         for (j = 0; j < Ny; j++) {
@@ -1178,6 +1166,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
     }
 
 
+    /* Freeing arrays made in this function */
     for (i = 0; i < nx; i++) {
         free(laplace_phi[i]);
     }
@@ -1195,7 +1184,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
 ==================================================================================================================== */
 
 
-int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS) {
+int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int nGS, int H_cells, int Bj, int Bi) {
 
     /* Initializing variables */
     int finished;
@@ -1214,6 +1203,10 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
     double half_lambda = pow(half_D_x, -2);
     int half_Nx = half_nx;
     int half_Ny = half_ny;
+
+    int H_cells2 = -1;
+    int Bi2 = -2;
+    int Bj2 = -2;
 
     double** residual = (double**)calloc(Ny, sizeof(double*));
     double** residual2 = (double**)calloc(half_Ny, sizeof(double*));
@@ -1375,13 +1368,13 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
 
 
     /* ------- RELAXATION ON error ------- */
-    GS_nstep(residual2, error2, half_Nx, half_Ny, D_x, D_y, epsilon, nGS);
+    GS_nstep(residual2, error2, half_Nx, half_Ny, D_x, D_y, epsilon, nGS, H_cells, Bj, Bi);
 
 
 
     /* ------- RECURSION ------- */
     if (half_Nx > 1 && half_Ny > 1) {
-        MG_recursion(residual2, error2, half_Nx, half_Ny, epsilon, nGS);
+        MG_recursion(residual2, error2, half_Nx, half_Ny, epsilon, nGS, H_cells2, Bj2, Bi2);
     }
 
     
@@ -1440,7 +1433,7 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
     }
 
     /* Exit GS solving */
-    finished = GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS);
+    finished = GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS, H_cells, Bj, Bi);
 
 
     for (j = 0; j < Ny; j++) {
@@ -1468,7 +1461,7 @@ int MG_recursion(double** f, double** phi, int Nx, int Ny, double epsilon, int n
 ==================================================================================================================== */
 
 
-int Multigrid_solver(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double epsilon, int nGS) {
+int Multigrid_solver(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double epsilon, int nGS, int H_cells, int Bj, int Bi) {
     
     int i, j;
     double nx = Nx;
@@ -1500,13 +1493,13 @@ int Multigrid_solver(double** f, double** phi, int Nx, int Ny, int D_x, int D_y,
 
 
     /* ------- RELAXATION ON phi ------- */
-    GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS);
+    GS_nstep(f, phi, Nx, Ny, D_x, D_y, epsilon, nGS, H_cells, Bj, Bi);
 
     do {
         
 
         /* ------- RECURSION ------- */
-        MG_recursion(f, phi, Nx, Ny, epsilon2, nGS);
+        MG_recursion(f, phi, Nx, Ny, epsilon2, nGS, H_cells, Bj, Bi);
         
         /* compute laplace_p matrix */
         for (j = 1; j < Ny - 1; j++) {
@@ -1613,7 +1606,9 @@ int main() {
     double H = 1;
     double U_inlet = 1;
     double Diff = pow(10,-4);
-    double nGS = 7; /* Number of Gauss-Seidel steps to take per relaxation in mutligrid acceleration */
+    double nGS = 15000; /* Number of Gauss-Seidel steps to take per relaxation in mutligrid acceleration */
+    
+    char convective_method[] = "quick";  // options are "upwind", "centraldiff", or "quick"
 
     double epsilon = pow(10, -3);
 
@@ -1624,6 +1619,9 @@ int main() {
     int H_cells = 20;
     double dx = H / H_cells;
     double dy = H / H_cells;
+
+    int Bj = 40;
+    int Bi = 200;
 
 
 
@@ -1641,7 +1639,9 @@ int main() {
     double v_s_ip1;
     double v_s_jp1;
 
-    
+    /* For scalar transport */
+    double convec;
+    double diffu;
 
 
     /* -------------------------------------------------------------------------
@@ -1650,65 +1650,838 @@ int main() {
 
     double** u = (double**)calloc(ny, sizeof(double*));
     double** v = (double**)calloc(ny + 1, sizeof(double*));
-    double** u_star = (double**)calloc(ny, sizeof(double*));
-    double** v_star = (double**)calloc(ny + 1, sizeof(double*));
 
     double** Hx_old = (double**)calloc(ny, sizeof(double*));
     double** Hy_old = (double**)calloc(ny, sizeof(double*));
 
     double** p = (double**)calloc(ny, sizeof(double*));             //cell centered
     double** grad_u_star_over_dt = (double**)calloc(ny, sizeof(double*));
+    
+    double** phi = (double**)calloc(ny, sizeof(double*));
+    double** phi_new = (double**)calloc(ny, sizeof(double*));
 
     double** step1_mat_x = (double**)calloc(ny, sizeof(double*));
     double** step1_mat_y = (double**)calloc(ny, sizeof(double*));
 
 
-    double* du_s = (double*)calloc(nx*ny, sizeof(double));
-    double* dv_s = (double*)calloc(nx*ny, sizeof(double));
-    double* du_ss = (double*)calloc(nx*ny, sizeof(double));
-    double* dv_ss = (double*)calloc(nx*ny, sizeof(double));
+    double** du_s = (double**)calloc(ny, sizeof(double*));
+    double** dv_s = (double**)calloc(ny, sizeof(double*));
+    double** du_ss = (double**)calloc(ny, sizeof(double*));
+    double** dv_ss = (double**)calloc(ny, sizeof(double*));
 
-    double* step1_mat_x_vec = (double*)calloc(nx*ny, sizeof(double));
-    double* step1_mat_y_vec = (double*)calloc(nx*ny, sizeof(double));
+
+    // check the size of these to make sure they align with the code
+
+    double* temp_vec_x_small = (double*)calloc(99, sizeof(double));
+    double* temp_vec_x_medium = (double*)calloc(19 * 20 - 1, sizeof(double));
+    double* temp_vec_x_medium2 = (double*)calloc(19 * 20, sizeof(double));
+    double* temp_vec_x_long = (double*)calloc(nx - 1, sizeof(double));
+
+    double* temp_vec_y_small = (double*)calloc(40, sizeof(double));
+    double* temp_vec_y_small2 = (double*)calloc(39, sizeof(double));
+    double* temp_vec_y_long = (double*)calloc(ny, sizeof(double));
+    double* temp_vec_y_long2 = (double*)calloc(ny - 1, sizeof(double));
+
 
 
     for (i = 0; i < ny; i++) {
         u[i] = (double*)calloc(nx + 1, sizeof(double));
         v[i] = (double*)calloc(nx, sizeof(double));
-        u_star[i] = (double*)calloc(nx + 1, sizeof(double));
-        v_star[i] = (double*)calloc(nx, sizeof(double));
 
         Hx_old[i] = (double*)calloc(nx, sizeof(double));
         Hy_old[i] = (double*)calloc(nx, sizeof(double));
 
         p[i] = (double*)calloc(nx, sizeof(double));
         grad_u_star_over_dt[i] = (double*)calloc(nx, sizeof(double));
+        
+        phi[i] = (double*)calloc(nx, sizeof(double));
+        phi_new[i] = (double*)calloc(nx, sizeof(double));
+
+        du_s[i] = (double*)calloc(nx, sizeof(double));
+        dv_s[i] = (double*)calloc(nx, sizeof(double));
+        du_ss[i] = (double*)calloc(nx, sizeof(double));
+        dv_ss[i] = (double*)calloc(nx, sizeof(double));
 
         step1_mat_x[i] = (double*)calloc(nx, sizeof(double));
         step1_mat_y[i] = (double*)calloc(nx, sizeof(double));
         
     }
+
+    //these variables must be a little larger for the multigrid to work
+    double** u_star = (double**)calloc(ny, sizeof(double*));
+    double** v_star = (double**)calloc(ny + 1, sizeof(double*));
+
+    for (i = 0; i < Ny; i++) {
+        u_star[i] = (double*)calloc(nx + 1, sizeof(double));
+    }
+
+    for (i = 0; i < Ny + 1; i++) {
+        v_star[i] = (double*)calloc(nx, sizeof(double));
+    }
+
+    //Initialize velocity at the left boundary
+    for (j = 0; j < Ny; j++) {
+        u[j][0] = U_inlet;
+        u_star[j][0] = U_inlet;    
+    }
  
 
+
+
     
-    /* sample for loop */
-    for(i = 0; i < Nx; i++) {
-        for (j = 0; j < Ny; j++) {
-            u[j][i] = 0;
-            printf("(%d, %d)", j, i);
+    /* -------------------------------------------------------------------------
+    ----------------------------------- Step 1 ---------------------------------
+    ------------------------------------------------------------------------- */
+
+
+    //--//--//--//--//-- Solve for step1_mat_x and step1_mat_y along boundaries and interior points --\\--\\--\\--\\--\\ 
+
+    for (j = 0; j < Ny; j++) {
+        for (i = 0; i < Nx; i++) {
+            /* Calculating step1_mat_x */
+            if (i > 0 && j > 0 && i < (Nx - 1) && j < (Ny - 1)) {  /* At interior points except at the edges  */
+                u_cc = (u[j][i] + u[j][i + 1]) / 2;
+                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
+            
+                Hx_old[j][i] = Hx;
+            }
+            else if (i == 0 && j != 0 && j != Ny - 1) {      /* At the left wall  */ 
+                u_cc = (u[j][i] + u[j][i + 1]) / 2;
+                u_cc_im1 = U_inlet;     ///technically don't use this value below
+
+                u_s = U_inlet;
+                v_s = 0;
+                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+                v_s_jp1 = 0;
+
+                Hx = ((pow(u_cc, 2) - pow(U_inlet, 2)) * 2 / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * (          ( (u[j][i+1] - u[j][i]) / dx - (u_cc - U_inlet) * 2 / dx )/dx                    + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
+            
+                Hx_old[j][i] = Hx;
+            }
+            else if (i == Nx - 1 && j != 0 && j != Ny - 1) {     /* At the right wall  */  
+                u_cc = u[j][i];
+                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
+            
+                Hx_old[j][i] = Hx;
+            }
+            else if (j == 0 && i != 0 && i != Nx - 1) {      /* At the bottom wall  */   
+                u_cc = (u[j][i] + u[j][i + 1]) / 2;
+                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+                u_s = 0;     
+                v_s = 0;
+                u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+                v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) +    ( (u[j+1][i] - u[j][i]) / dy - (u[j][i] - u_s) *(2/dy) ) / dy   ));
+            
+                Hx_old[j][i] = Hx;
+            }
+            else if (j == Ny - 1 && i != 0 && i != Nx - 1) {    /* At the top wall  */    
+                u_cc = (u[j][i] + u[j][i + 1]) / 2;
+                u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_jp1 = 0;
+                v_s_jp1 = 0;
+
+                Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+                step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) +         ( (u_s_jp1 - u[j][i]) *(2/dy) - (u[j][i] - u[j-1][i]) / dy) / dy        ));
+            
+                Hx_old[j][i] = Hx;
+            }
+
+
+
+
+
+
+            /* Calculating step1_mat_y */
+            if (i > 0 && j > 0 && i < (Nx - 1) && j < (Ny - 1)) {  // At interior points except at the edges  
+                v_cc = (v[j][i] + v[j + 1][i]) / 2;
+                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+            
+                Hy_old[j][i] = Hy;
+            }
+            else if (j == 0 && i != 0 && i != Nx - 1) {    /* At the bottom wall  */   
+                v_cc = (v[j][i] + v[j + 1][i]) / 2;
+                v_cc_jm1 = 0;
+
+                u_s = 0;
+                v_s = 0;
+                u_s_ip1 = 0;
+                v_s_ip1 = 0;
+
+                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2))*2 / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + ( (v[j+1][i] - v[j][i])/dy - (v_cc - v[j][i])*2/dy ) /dy        ));
+            
+                Hy_old[j][i] = Hy;
+            }
+            else if (j == Ny - 1 && i != 0 && i != Nx - 1) {     /* At the top wall  */   
+                v_cc = (v[j][i] + 0) / 2;
+                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) +     (0 - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+            
+                Hy_old[j][i] = Hy;
+            }
+            else if (i == 0 && j != 0 && j != Ny - 1) {      /* At left wall  */  
+                v_cc = (v[j][i] + v[j + 1][i]) / 2;
+                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+                u_s = U_inlet;
+                v_s = 0;
+                u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+                v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) *          (     ( (v[j][i+1] - v[j][i])/dx - (v[j][i] - v_s)*2/dx )  / dx         + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+            
+                Hy_old[j][i] = Hy;
+            }
+            else if (i == Nx - 1 && j != 0 && j != Ny - 1) {     /* At the right wall  */    
+                v_cc = (v[j][i] + v[j + 1][i]) / 2;
+                v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+                u_s = (u[j][i] + u[j - 1][i]) / 2;
+                v_s = (v[j][i] + v[j][i - 1]) / 2;
+                u_s_ip1 = u_s;
+                v_s_ip1 = v_s;
+
+                Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+                step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (     (v[j][i] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2)        + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+            
+                Hy_old[j][i] = Hy;
+            }
         }
-        printf("\n");
     }
 
 
 
 
-    /* -------------------------------------------------------------------------
-    ----------------------------------- Step 1 ---------------------------------
-    ------------------------------------------------------------------------- */
+
+
+    //--//--//--//--//-- deal with corner points for step1_mat_x and step1_mat_y --\\--\\--\\--\\--\\ 
+
+    /////////////////top left corner/////////////////////
+    i = 0;
+    j = Ny - 1;
+
+    //x data
+    u_cc = (u[j][i] + u[j][i + 1]) / 2; 
+    u_cc_im1 = U_inlet;     
+
+    u_s = U_inlet;
+    v_s = 0;
+    u_s_jp1 = 0;
+    v_s_jp1 = 0;
+
+    Hx = ((pow(u_cc, 2) - pow(U_inlet, 2)) * 2 / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+    step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * (          ( (u[j][i+1] - u[j][i]) / dx - (u_cc - U_inlet) * 2 / dx )/dx                    +  ( (u_s_jp1 - u[j][i]) *(2/dy) - (u[j][i] - u[j-1][i]) / dy) / dy    ));
+
+    Hx_old[j][i] = Hx;
+            
+
+    //y data
+    v_cc = (v[j][i] + 0) / 2;
+    v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+    u_s = U_inlet;
+    v_s = 0;
+    u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+    v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+    Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+    step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (    ( (v[j][i+1] - v[j][i])/dx - (v[j][i] - v_s)*2/dx )  / dx +     (0 - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+
+    Hy_old[j][i] = Hy;
+
+
+
+    /////////////////top right corner/////////////////
+    i = Nx - 1;
+    j = Ny - 1;
+
+    //x data
+    u_cc = u[j][i];
+    u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+    u_s = (u[j][i] + u[j - 1][i]) / 2;
+    v_s = (v[j][i] + v[j][i - 1]) / 2;
+    u_s_jp1 = 0;
+    v_s_jp1 = 0;
+
+    Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+    step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * (       (u[j][i] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2)   +     ( (u_s_jp1 - u[j][i]) *(2/dy) - (u[j][i] - u[j-1][i]) / dy) / dy      ));
+
+    Hx_old[j][i] = Hx;
+
+
+    //y data
+    v_cc = (v[j][i] + 0) / 2;
+    v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+    u_s = (u[j][i] + u[j - 1][i]) / 2;
+    v_s = (v[j][i] + v[j][i - 1]) / 2;
+    u_s_ip1 = u_s;
+    v_s_ip1 = v_s;
+
+    Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+    step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (      (v[j][i] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2)       +     (0 - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+
+    Hy_old[j][i] = Hy;
+
+
+
+    /////////////////bottom left corner/////////////////
+    i = 0;
+    j = 0;
+
+    //x data
+    u_cc = (u[j][i] + u[j][i + 1]) / 2;
+    u_cc_im1 = U_inlet;     
+
+    u_s = 0;
+    v_s = 0;
+    u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+    v_s_jp1 = 0;
+
+    Hx = ((pow(u_cc, 2) - pow(U_inlet, 2)) * 2 / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+    step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * (          ( (u[j][i+1] - u[j][i]) / dx - (u_cc - U_inlet) * 2 / dx )/dx          +   ( (u[j+1][i] - u[j][i]) / dy - (u[j][i] - u_s) *(2/dy) ) / dy  ));
+
+    Hx_old[j][i] = Hx;
+            
+
+    //y data
+    v_cc = (v[j][i] + v[j + 1][i]) / 2;
+    v_cc_jm1 = 0;
+
+    u_s = 0;
+    v_s = 0;
+    u_s_ip1 = 0;
+    v_s_ip1 = 0;
+
+    Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2))*2 / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+    step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (    ( (v[j][i+1] - v[j][i])/dx - (v[j][i] - v_s)*2/dx )  / dx      + ( (v[j+1][i] - v[j][i])/dy - (v_cc - v[j][i])*2/dy ) /dy        ));
+
+    Hy_old[j][i] = Hy;
+
+
+    /////////////////bottom right corner/////////////////
+    i = Nx - 1;
+    j = 0;
+
+    //x data
+    u_cc = u[j][i];
+    u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+    u_s = 0;
+    v_s = 0;
+    u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+    v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+    Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+    step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * (   (u[j][i] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2)    +       ( (u[j+1][i] - u[j][i]) / dy - (u[j][i] - u_s) *(2/dy) ) / dy   ));
+
+    Hx_old[j][i] = Hx;
+            
+
+    //y data
+    v_cc = (v[j][i] + v[j + 1][i]) / 2;
+    v_cc_jm1 = 0;
+
+    u_s = 0;
+    v_s = 0;
+    u_s_ip1 = 0;
+    v_s_ip1 = 0;
+
+    Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2))*2 / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+    step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (    (v[j][i] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) + ( (v[j+1][i] - v[j][i])/dy - (v_cc - v[j][i])*2/dy ) /dy        ));
+
+    Hy_old[j][i] = Hy;
+
 
     
-    /* Ignore for now until it is working */
+    //--//--//--//--//-- Deal with boundary conditions for square obstacle --\\--\\--\\--\\--\\ 
+
+    /////////////////////Top boundary of square/////////////////////////
+
+    // u barycenter
+
+    j = 60;
+    for (i = 100; i < 120; i++) {
+        u_cc = (u[j][i] + u[j][i + 1]) / 2;
+        u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+        u_s = 0;     
+        v_s = 0;
+        u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+        v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+        Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+        step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) +    ( (u[j+1][i] - u[j][i]) / dy - (u[j][i] - u_s) *(2/dy) ) / dy   ));
+            
+        Hx_old[j][i] = Hx;
+    }
+
+    /////////////////////Right boundary of square/////////////////////////
+
+    // v barycenter
+    i = 120;
+    for (j = 40; j < 60; j++) {
+        v_cc = (v[j][i] + v[j + 1][i]) / 2;
+        v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+        u_s = 0;
+        v_s = 0;
+        u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+        v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+        Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+        step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) *          (     ( (v[j][i+1] - v[j][i])/dx - (v[j][i] - v_s)*2/dx )  / dx         + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+    
+        Hy_old[j][i] = Hy;
+    }
+
+    /////////////////////Bottom boundary of square/////////////////////////
+
+    //u barycenter
+    j = 39;
+    for (i = 100; i < 120; i++) {
+        u_cc = (u[j][i] + u[j][i + 1]) / 2;
+        u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+        u_s = (u[j][i] + u[j - 1][i]) / 2;
+        v_s = (v[j][i] + v[j][i - 1]) / 2;
+        u_s_jp1 = 0;
+        v_s_jp1 = 0;
+
+        Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+        step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) +         ( (u_s_jp1 - u[j][i]) *(2/dy) - (u[j][i] - u[j-1][i]) / dy) / dy        ));
+        
+        Hx_old[j][i] = Hx;
+              
+    }
+
+    //v barycenter
+    j = 39;
+    for (i = 100; i < 120; i++) {
+        v_cc = (v[j][i] + 0) / 2;
+        v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+        u_s = (u[j][i] + u[j - 1][i]) / 2;
+        v_s = (v[j][i] + v[j][i - 1]) / 2;
+        u_s_ip1 = (u[j][i + 1] + u[j - 1][i + 1]) / 2;
+        v_s_ip1 = (v[j][i + 1] + v[j][i]) / 2;
+
+        Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+        step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * ((v[j][i + 1] - 2 * v[j][i] + v[j][i - 1]) / pow(dx, 2) +     (0 - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+    
+        Hy_old[j][i] = Hy;
+    }
+
+
+
+    /////////////////////Left boundary of square/////////////////////////
+
+    //u barycenter
+    i = 99;
+    for (j = 40; j < 60; j++) {
+        u_cc = (u[j][i] + 0 ) / 2;
+        u_cc_im1 = (u[j][i - 1] + u[j][i]) / 2;
+
+        u_s = (u[j][i] + u[j - 1][i]) / 2;
+        v_s = (v[j][i] + v[j][i - 1]) / 2;
+        u_s_jp1 = (u[j + 1][i] + u[j][i]) / 2;
+        v_s_jp1 = (v[j + 1][i] + v[j + 1][i - 1]) / 2;
+
+        Hx = ((pow(u_cc, 2) - pow(u_cc_im1, 2)) / dx) + (u_s_jp1 * v_s_jp1 - u_s * v_s) / dy;
+
+        step1_mat_x[j][i] = dt * (Hx * 3 / 2 - Hx_old[j][i] / 2 + (1 / Re) * ((u[j][i + 1] - 2 * u[j][i] + u[j][i - 1]) / pow(dx, 2) + (u[j + 1][i] - 2 * u[j][i] + u[j - 1][i]) / pow(dy, 2)));
+    
+        Hx_old[j][i] = Hx;
+    }
+
+
+    //v barycenter
+    i = 99;
+    for (j = 40; j < 60; j++) {
+        v_cc = (v[j][i] + v[j + 1][i]) / 2;
+        v_cc_jm1 = (v[j - 1][i] + v[j][i]) / 2;
+
+        u_s = (u[j][i] + u[j - 1][i]) / 2;
+        v_s = (v[j][i] + v[j][i - 1]) / 2;
+        u_s_ip1 = 0;
+        v_s_ip1 = 0;
+
+        Hy = ((pow(v_cc, 2) - pow(v_cc_jm1, 2)) / dy) + (u_s_ip1 * v_s_ip1 - u_s * v_s) / dx;
+
+        step1_mat_y[j][i] = dt * (Hy * 3 / 2 - Hy_old[j][i] / 2 + (1 / Re) * (   ( (v_s_ip1 - v[j][j])*2/dy - (v[j][i] - v[j][i-1]/dy) )/dy            + (v[j + 1][i] - 2 * v[j][i] + v[j - 1][i]) / pow(dy, 2)));
+    
+        Hy_old[j][i] = Hy;
+    }
+
+
+
+    //////////// set values inside the square equal to zero for good measure
+
+    for (j = 40; j < 60; j++) {
+        for (i = 100; i < 120; i++) {
+            step1_mat_x[j][i] = 0;
+            step1_mat_y[j][i] = 0;
+        }
+    }
+    
+
+
+    
+    //--//--//--//--//-- Tridiagonal solve for du_ss --\\--\\--\\--\\--\\ 
+
+    //rows below the bottom of the square
+    for (j = 0; j < 40; j++) {
+
+        //fill in temp_vec with row of pixels except first pixel
+        for(i = 0; i < Nx - 1; i++) {
+            temp_vec_x_long[i] = step1_mat_x[j][i+1];
+        }
+ 
+        //gaussian elimination
+        TriDiag_GaussElim(Nx, dx, dt, Re, temp_vec_x_long, 1, 0);
+
+        //update du_ss
+        for(i = 0; i < Nx - 1; i++) {
+            du_ss[j][i+ 1] = temp_vec_x_long[i];
+        }
+        
+    }
+
+
+    //rows to left and right of square
+    for (j = 40; j < 60; j++) {
+
+        /////////left
+        
+        for(i = 0; i < 99; i++) {
+            temp_vec_x_small[i] = step1_mat_x[j][i+1];
+        }
+        
+        TriDiag_GaussElim(100, dx, dt, Re, temp_vec_x_small, 0, 0);
+
+        for(i = 0; i < 99; i++) {
+            du_ss[j][i+ 1] = temp_vec_x_small[i];
+        }
+
+
+        ////////right
+
+        for(i = 0; i < 19 * 20 - 1; i++) {
+            temp_vec_x_medium[i] = step1_mat_x[j][i+121];
+        }
+ 
+        TriDiag_GaussElim(19*20, dx, dt, Re, temp_vec_x_medium, 1, 0);
+
+        for(i = 0; i < 19 * 20 - 1; i++) {
+            du_ss[j][i+ 121] = temp_vec_x_medium[i];
+        }
+        
+
+    }
+
+   
+
+    //rows above the top of the square
+    for (j = 60; j < Ny; j++) {
+
+        for(i = 0; i < Nx - 1; i++) {
+            temp_vec_x_long[i] = step1_mat_x[j][i+1];
+        }
+
+        TriDiag_GaussElim(Nx, dx, dt, Re, temp_vec_x_long, 1, 0);
+
+        for(i = 0; i < Nx - 1; i++) {
+            du_ss[j][i+ 1] = temp_vec_x_long[i];
+        }
+
+    }
+
+    
+    
+
+    //--//--//--//--//-- Tridiagonal solve for dv_ss --\\--\\--\\--\\--\\ 
+    
+    //rows below the bottom of the square
+    for (j = 1; j < 40; j++) {
+
+        //fill in temp_vec with row of pixels except first pixel
+        for(i = 0; i < Nx - 1; i++) {
+            temp_vec_x_long[i] = step1_mat_y[j][i+1];
+        }
+ 
+        //gaussian elimination
+        TriDiag_GaussElim(Nx, dx, dt, Re, temp_vec_x_long, 1, 0);
+
+        //update dv_ss
+        for(i = 0; i < Nx - 1; i++) {
+            dv_ss[j][i+ 1] = temp_vec_x_long[i];
+        }
+        
+    }
+
+
+    //rows to left and right of square
+    for (j = 40; j < 60; j++) {
+
+        /////////left
+        
+        for(i = 0; i < 99; i++) {
+            temp_vec_x_small[i] = step1_mat_y[j][i+1];
+        }
+        
+        TriDiag_GaussElim(100, dx, dt, Re, temp_vec_x_small, 0, 0);
+
+        for(i = 0; i < 99; i++) {
+            dv_ss[j][i+ 1] = temp_vec_x_small[i];
+        }
+
+
+        ////////right (this one was changed to incorporate the values at the boundary)
+
+        for(i = 0; i < 19 * 20; i++) {
+            temp_vec_x_medium2[i] = step1_mat_y[j][i+120];
+        }
+ 
+        TriDiag_GaussElim(19*20 + 1, dx, dt, Re, temp_vec_x_medium2, 1, 0);
+
+        for(i = 0; i < 19 * 20; i++) {
+            dv_ss[j][i+ 120] = temp_vec_x_medium2[i];
+        }
+        
+
+    }
+
+
+    //rows above the top of the square
+    for (j = 60; j < Ny; j++) {
+
+        for(i = 0; i < Nx - 1; i++) {
+            temp_vec_x_long[i] = step1_mat_y[j][i+1];
+        }
+
+        TriDiag_GaussElim(Nx, dx, dt, Re, temp_vec_x_long, 1, 0);
+
+        for(i = 0; i < Nx - 1; i++) {
+            dv_ss[j][i+ 1] = temp_vec_x_long[i];
+        }
+
+    }
+
+
+
+
+    
+    //--//--//--//--//-- Tridiagonal solve for du_s --\\--\\--\\--\\--\\ 
+
+    //columns to the left of the square
+    for (i = 1; i < 100; i++) {
+
+        for (j = 0; j < Ny; j++) {
+            temp_vec_y_long[j] = du_ss[j][i];
+        }
+
+        TriDiag_GaussElim(Ny + 1, dy, dt, Re, temp_vec_y_long, 0, 1);
+
+        for (j = 0; j < Ny; j++) {
+            du_s[j][i] = temp_vec_y_long[j];
+        }
+
+    }
+
+
+    
+
+    //columns above and below the square
+
+    for (i = 100; i < 120; i++) {
+
+        //below
+        for (j = 0; j < 40; j++) {
+            temp_vec_y_small[j] = du_ss[j][i];
+        }
+
+        TriDiag_GaussElim(41, dy, dt, Re, temp_vec_y_small, 0, 1);
+
+        for (j = 0; j < 40; j++) {
+            du_s[j][i] = temp_vec_y_small[j];
+        }
+
+        //above
+        for (j = 0; j < 40; j++) {
+            temp_vec_y_small[j] = du_ss[j + 60][i];
+        }
+
+        TriDiag_GaussElim(41, dy, dt, Re, temp_vec_y_small, 0, 1);
+
+        for (j = 0; j < 40; j++) {
+            du_s[j + 60][i] = temp_vec_y_small[j];
+        }
+
+    }
+
+
+
+
+    //columns to the right of the square
+    for (i = 120; i < Nx; i++) {
+
+        for (j = 0; j < Ny; j++) {
+            temp_vec_y_long[j] = du_ss[j][i];
+        }
+
+        TriDiag_GaussElim(Ny + 1, dy, dt, Re, temp_vec_y_long, 0, 1);
+
+        for (j = 0; j < Ny; j++) {
+            du_s[j][i] = temp_vec_y_long[j];
+        }
+
+    }
+
+
+
+    //--//--//--//--//-- Tridiagonal solve for dv_s --\\--\\--\\--\\--\\ 
+
+    //columns to the left of the square
+    for (i = 1; i < 100; i++) {
+
+        for (j = 0; j < Ny - 1; j++) {
+            temp_vec_y_long2[j] = dv_ss[j + 1][i];
+        }
+
+        TriDiag_GaussElim(Ny, dy, dt, Re, temp_vec_y_long2, 0, 0);
+
+        for (j = 0; j < Ny - 1; j++) {
+            dv_s[j + 1][i] = temp_vec_y_long2[j];
+        }
+
+    }
+
+
+    //columns above and below the square
+
+    for (i = 100; i < 120; i++) {
+
+        //below
+        for (j = 0; j < 39; j++) {
+            temp_vec_y_small2[j] = dv_ss[j + 1][i];
+        }
+
+        TriDiag_GaussElim(40, dy, dt, Re, temp_vec_y_small2, 0, 0);
+
+        for (j = 0; j < 39; j++) {
+            dv_s[j + 1][i] = temp_vec_y_small2[j];
+        }
+
+
+
+        //above
+        for (j = 0; j < 39; j++) {
+            temp_vec_y_small2[j] = dv_ss[j + 61][i];
+        }
+
+        TriDiag_GaussElim(40, dy, dt, Re, temp_vec_y_small2, 0, 0);
+
+        for (j = 0; j < 39; j++) {
+            dv_s[j + 61][i] = temp_vec_y_small2[j];
+        }
+
+
+    }
+
+
+    //columns to the right of the square
+    for (i = 120; i < Nx; i++) {
+
+        for (j = 0; j < Ny - 1; j++) {
+            temp_vec_y_long2[j] = dv_ss[j + 1][i];
+        }
+
+        TriDiag_GaussElim(Ny, dy, dt, Re, temp_vec_y_long2, 0, 0);
+
+        for (j = 0; j < Ny - 1; j++) {
+            dv_s[j + 1][i] = temp_vec_y_long2[j];
+        }
+
+    }
+
+    
+
+
+    //--//--//--//--//-- Update u_star and v_star --\\--\\--\\--\\--\\ 
+    for (j = 0; j < Ny; j++) {
+        for (i = 0; i < Nx; i++) {
+            u_star[j][i] = u[j][i] + du_s[j][i];
+            v_star[j][i] = v[j][i] + dv_s[j][i];
+        }
+    }
+
+    // update right boundary of u_star
+    for (j = 0; j < Ny; j++) {
+        u_star[j][Nx] = u_star[j][Nx - 1];
+    }
 
 
     /* -------------------------------------------------------------------------
@@ -1726,7 +2499,7 @@ int main() {
     }
 
     /* Solving for cell-centered pressure using multigrid acceleration method */
-    Multigrid_solver(grad_u_star_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS);
+    GS_nstep(grad_u_star_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS, H_cells, Bj, Bi);
 
 
 
@@ -1735,7 +2508,7 @@ int main() {
     ---------------------------------- Step 3 ----------------------------------
     ------------------------------------------------------------------------- */
 
-
+    
 
 
 
@@ -1749,6 +2522,458 @@ int main() {
     ------------------------------------------------------------------------- */
 
 
+    if ( strcmp(convective_method, "upwind") == 0 ) {
+        printf("Now commencing the upwind method to deal with the scalar transport \n");
+
+        //interior points 
+
+        for (j = 1; j < Ny - 1; j++) {
+            for (i = 1; i < Nx - 1; i++) {
+
+                diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+                if (j > Ny / 2) {
+                    convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+                }
+                else {
+                    convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j+1][i] - v[j][i] * phi[j][i]) / dy;
+                }
+
+
+                phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+            }
+        }
+
+        
+        //top boundary points except corners
+        j = Ny - 1;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (0 * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //right boundary points except corners
+        i = Nx - 1;
+
+        for (j = 1; j < Ny - 1; j++) {
+
+            diffu = Diff * (   (phi[j][i] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //left boundary points
+        i = 0;
+
+        for (j = 0; j < Ny; j++) {
+            phi_new[j][i] = exp( -1 * pow(j * dy - 2.5 * H + 0.5 * dy ,2) );
+        }
+
+
+        //bottom boundary points
+        j = 0;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * 0) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+ 
+
+        //top right corner
+
+        j = Ny - 1; 
+        i = Nx - 1;
+
+        diffu = Diff * (   (- phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (- phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+        convec =  ( u[j][i] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (0 * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+
+        //bottom right corner
+
+        j = 0; 
+        i = Nx - 1;
+
+        diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+        convec =  ( u[j][i] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * 0) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        
+
+
+        //boundary of square
+
+        //bottom 
+        j = 39;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (0 * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        //top
+        j = 60;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * 0) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+
+        //left
+        i = 99; 
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( 0 * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * phi[j - 1][i]) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+
+        //right
+        i = 120;
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   (phi[j][i+1] - phi[j][i] ) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * phi[j][i] - u[j][i] * phi[j][i-1]) / dx   +   (v[j + 1][i] * phi[j][i] - v[j][i] * 0) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+        //inside square, set phi_new = 0
+
+        for (j = 40; j < 60; j++) {
+            for (i = 100; i < 120; i++) {
+                phi_new[j][i] = 0;
+            }
+        }
+
+
+    }
+
+
+
+
+
+    if ( strcmp(convective_method, "centraldiff") == 0 ) {
+        printf("Now commencing the centraldiff method to deal with the scalar transport \n");
+
+        //interior points 
+
+        for (j = 1; j < Ny - 1; j++) {
+            for (i = 1; i < Nx - 1; i++) {
+
+                diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+                convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+
+                phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+            }
+        }
+
+        
+        //top boundary points except corners
+        j = Ny - 1;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (0 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //right boundary points except corners
+        i = Nx - 1;
+
+        for (j = 1; j < Ny - 1; j++) {
+
+            diffu = Diff * (   (phi[j][i] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //left boundary points
+        i = 0;
+
+        for (j = 0; j < Ny; j++) {
+            phi_new[j][i] = exp( -1 * pow(j * dy - 2.5 * H + 0.5 * dy ,2) );
+        }
+
+
+        //bottom boundary points
+        j = 0;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+ 
+
+        //top right corner
+
+        j = Ny - 1; 
+        i = Nx - 1;
+
+        diffu = Diff * (   (- phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (- phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+        convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (  0  - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+
+        //bottom right corner
+
+        j = 0; 
+        i = Nx - 1;
+
+        diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+        convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        
+
+
+        //boundary of square
+
+        //bottom 
+        j = 39;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (0 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        //top
+        j = 60;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+        
+
+        //left
+        i = 99; 
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  (   0  - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+
+        //right
+        i = 120;
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   (phi[j][i+1] - phi[j][i] ) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - 0 ) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+        //inside square, set phi_new = 0
+
+        for (j = 40; j < 60; j++) {
+            for (i = 100; i < 120; i++) {
+                phi_new[j][i] = 0;
+            }
+        }
+
+
+    }
+
+
+
+
+
+    if ( strcmp(convective_method, "quick") == 0 ) {
+        printf("Now commencing the quick method to deal with the scalar transport \n");
+
+        //interior points 
+
+        for (j = 1; j < Ny - 1; j++) {
+            for (i = 1; i < Nx - 1; i++) {
+
+                diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+                if (j > Ny / 2) {
+                    convec =  ( u[j][i+1] * (- phi[j][i-1]/6 + phi[j][i] * 5 /6 + phi[j][i+1]*2/6) - u[j][i] * (- phi[j][i-2]/6 + phi[j][i-1] * 5 /6 + phi[j][i]*2/6)  ) / dx   +   (v[j + 1][i] * ( phi[j+1][i]*2/6 + phi[j][i]*5/6 - phi[j-1][i]/6 ) - v[j][i] *  (phi[j][i]*2/6 + phi[j-1][i]*5/6 - phi[j-2][i]/6)  ) / dy;
+                }
+                else {
+                    convec =  ( u[j][i+1] * (- phi[j][i-1]/6 + phi[j][i] * 5 /6 + phi[j][i+1]*2/6) - u[j][i] * (- phi[j][i-2]/6 + phi[j][i-1] * 5 /6 + phi[j][i]*2/6)  ) / dx   +   (v[j + 1][i] * (-phi[j+2][i]/6 + phi[j+1][i]*5/6 + phi[j][i]*2/6) - v[j][i] * (-phi[j+1][i]/6 + phi[j][i]*5/6 + phi[j-1][i]*2/6)  ) / dy;
+                }
+
+
+                phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+            }
+        }
+
+
+        //////////////////just replaced with second order central differencing for code below
+
+        
+        //top boundary points except corners
+        j = Ny - 1;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (0 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //right boundary points except corners
+        i = Nx - 1;
+
+        for (j = 1; j < Ny - 1; j++) {
+
+            diffu = Diff * (   (phi[j][i] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+
+            convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+
+
+        //left boundary points
+        i = 0;
+
+        for (j = 0; j < Ny; j++) {
+            phi_new[j][i] = exp( -1 * pow(j * dy - 2.5 * H + 0.5 * dy ,2) );
+        }
+
+
+        //bottom boundary points
+        j = 0;
+
+        for (i = 1; i < Nx - 1; i++) {
+
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        }
+ 
+
+        //top right corner
+
+        j = Ny - 1; 
+        i = Nx - 1;
+
+        diffu = Diff * (   (- phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (- phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+        convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (  0  - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+
+        //bottom right corner
+
+        j = 0; 
+        i = Nx - 1;
+
+        diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+        convec =  ( u[j][i] * (phi[j][i] + phi[j][i]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+        phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+
+        
+
+
+        //boundary of square
+
+        //bottom 
+        j = 39;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   ( - phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (0 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        //top
+        j = 60;
+        for (i = 100; i < 120; i++) {
+            diffu = Diff * (   (phi[j][i+1] - 2*phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - phi[j][i] )/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - 0 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+        
+
+        //left
+        i = 99; 
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   ( - phi[j][i] + phi[j][i-1]) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  (   0  - u[j][i] * (phi[j][i-1] + phi[j][i])/2) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+
+        //right
+        i = 120;
+        for (j = 40; j < 60; j++) {
+            diffu = Diff * (   (phi[j][i+1] - phi[j][i] ) / (pow(dx,2))   +   (phi[j + 1][i] - 2*phi[j][i] + phi[j-1][i])/(pow(dy,2))    );
+            convec =  ( u[j][i+1] * (phi[j][i] + phi[j][i+1]) / 2 - 0 ) / dx   +   (v[j + 1][i] * (phi[j][i] + phi[j + 1][i])/2 - v[j][i] * (phi[j - 1][i] + phi[j][i])/2 ) / dy;
+            phi_new[j][i] = phi[j][i] + dt * (diffu - convec);
+        }
+
+        
+        //inside square, set phi_new = 0
+
+        for (j = 40; j < 60; j++) {
+            for (i = 100; i < 120; i++) {
+                phi_new[j][i] = 0;
+            }
+        }
+
+
+    }
+
+
+
+
+    for (j = 0; j < Ny; j++) {
+        for (i = 0; i < Nx; i++) {
+            phi[j][i] = phi_new[j][i];
+        }
+    }
+
+
+
 
     /* -------------------------------------------------------------------------
     ---------------------------- Freeing Variables -----------------------------
@@ -1756,29 +2981,37 @@ int main() {
     for (i = 0; i < Ny; i++) {
         free(u[i]);
         free(v[i]);
-        free(u_star[i]);
-        free(v_star[i]);
 
         free(Hx_old[i]);
         free(Hy_old[i]);
 
         free(p[i]);
         free(grad_u_star_over_dt[i]);
+        
+        free(phi[i]);
+        free(phi_new[i]);
 
         free(step1_mat_x[i]);
         free(step1_mat_y[i]);
+
+        free(du_s[i]);
+        free(dv_s[i]);
+        free(du_ss[i]);
+        free(dv_ss[i]);
+
     }
 
     free(u);
     free(v);
-    free(u_star);
-    free(v_star);
 
     free(Hx_old);
     free(Hy_old);
 
     free(p);
     free(grad_u_star_over_dt);
+    
+    free(phi);
+    free(phi_new);
 
     free(step1_mat_x);
     free(step1_mat_y);
@@ -1787,9 +3020,29 @@ int main() {
     free(du_s);
     free(dv_s);
     free(du_ss);
-    free(dv_s);
+    free(dv_ss);
 
-    free(step1_mat_x_vec);
-    free(step1_mat_y_vec);
+    free(temp_vec_x_small);
+    free(temp_vec_x_medium);
+    free(temp_vec_x_medium2);
+    free(temp_vec_x_long);
+
+    free(temp_vec_y_small);
+    free(temp_vec_y_small2);
+    free(temp_vec_y_long);
+    free(temp_vec_y_long2);
+
+    for (i = 0; i < Ny; i++) {
+        free(u_star[i]);
+    }
+
+    for (i = 0; i < Ny + 1; i++) {
+        free(v_star[i]);
+    }
+
+    free(u_star);
+    free(v_star);
+
+    printf("\n End of script");
 
 }
