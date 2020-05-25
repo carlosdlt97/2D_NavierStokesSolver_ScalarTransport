@@ -110,9 +110,10 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         }
         
         f_norm = sqrt(f_norm);
+        
+
 
     }
-
 
 
     do {
@@ -396,7 +397,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
             for (j = 0; j < Ny; j++) {
                 for (i = 0; i < Nx; i++) {
 
-                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
+                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny - 1)) {
                         /* Interior calculations */
                         if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
                             /* Inside void - skip this position */
@@ -885,7 +886,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
             for (j = 0; j < Ny; j++) {
                 for (i = 0; i < Nx; i++) {
 
-                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny + 1)) {
+                    if ((i > 0 && i < Nx - 1) && (j > 0 && j < Ny - 1)) {
                         /* Interior calculations */
                         if ( ((j >= Bj) && (j <= (Bj + H_cells - 1))) && ((i >= Bi) && (i <= (Bi + H_cells - 1))) ) {
                             /* Inside void - skip this position */
@@ -1099,7 +1100,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         }
    
 
-    
+
 
         /* compute the norm */
         laplace_phi_minus_f_norm = 0;
@@ -1120,6 +1121,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         laplace_phi_minus_f_norm = sqrt(laplace_phi_minus_f_norm);
 
 
+
         if (f_norm == 0) {
             RHS = epsilon;
         }
@@ -1137,10 +1139,11 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         step += 1;
 
     } while (laplace_phi_minus_f_norm > RHS && Nx != 1 && Ny != 1);
-    
+
 
 
     if (Nx != 1 && Ny != 1) {
+
         /* Impose condition that the integral over the domain is equal to zero */
         integral = 0;
         for (j = 0; j < Ny; j++) {
@@ -1167,7 +1170,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
 
 
     /* Freeing arrays made in this function */
-    for (i = 0; i < nx; i++) {
+    for (i = 0; i < Ny; i++) {
         free(laplace_phi[i]);
     }
 
@@ -1329,7 +1332,6 @@ int main() {
     ------------------------------------------------------------------------- */
 
 
-    
 
 
     /* -------------------------------------------------------------------------
@@ -1346,9 +1348,9 @@ int main() {
         }
     }
 
+
     /* Solving for cell-centered pressure using multigrid acceleration method */
     GS_nstep(grad_u_star_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS, H_cells, Bj, Bi);
-
 
 
 
@@ -1413,7 +1415,6 @@ int main() {
 
         }
     }
-
 
 
 
