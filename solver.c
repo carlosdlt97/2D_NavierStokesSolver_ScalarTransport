@@ -1685,7 +1685,7 @@ int main() {
 
 
 
-    for (i = 0; i < ny; i++) {
+    for (i = 0; i < Ny; i++) {
         u[i] = (double*)calloc(nx + 1, sizeof(double));
         v[i] = (double*)calloc(nx, sizeof(double));
 
@@ -3105,5 +3105,7 @@ int main() {
     free(v_star);
 
     printf("\n End of script");
+
+    return 0;
 
 }
