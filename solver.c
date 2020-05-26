@@ -133,7 +133,7 @@ double* TriDiag_GaussElim(int size, double dx_or_dy, double dt, double Re, doubl
 ======================= n-Step Gauss-Seidel Solver ==========================
 ========================================================================== */
 
-int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double epsilon, int nGS, int H_cells, int Bj, int Bi) {
+int GS_nstep(double** f, double** phi, int Nx, int Ny, double D_x, double D_y, double epsilon, int nGS, int H_cells, int Bj, int Bi) {
 
     /* Initilaizations */
     int i, j;
@@ -162,7 +162,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         for (j = 0; j < Ny; j++) {
             for (i = 0; i < Nx; i++) {
 
-                if ( ((j < Bj) || ( j > (Bj + H_cells - 1))) && ((i < Bi) || (i > (Bi + H_cells - 1)))  ) {     /* if not inside the void... */
+                if ( ((j < Bj) || ( j > (Bj + H_cells - 1))) || ((i < Bi) || (i > (Bi + H_cells - 1)))  ) {     /* if not inside the void... */
                     f_norm = f_norm + pow(f[j][i], 2);
                 }
 
@@ -505,7 +505,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
+                            
                         }
 
                     }
@@ -529,7 +529,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i]) / 3 - f[j][i] / (3 * lambda);
-
+                            
                         }
 
                     }
@@ -553,6 +553,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[j][i] = (phi[j][i + 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
+                            
                            
                         }
 
@@ -577,7 +578,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[j][i] = (phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) / 3 - f[j][i] / (3 * lambda);
-
+                            
                         }
 
                     }
@@ -597,7 +598,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[0][0] = (phi[1][0] + phi[0][1]) / 2 - f[0][0] / (2 * lambda);
-
+                        
                         }
 
                     }
@@ -617,7 +618,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[0][Nx - 1] = (phi[1][Nx - 1] + phi[0][Nx - 2]) / 2 - f[0][Nx - 1] / (2 * lambda);
-
+                            
                         }
 
                     }
@@ -637,7 +638,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             phi[Ny - 1][0] = (phi[Ny - 1][1] + phi[Ny - 2][0]) / 2 - f[Ny - 1][0] / (2 * lambda);
-
+                            
                         }
 
                     }
@@ -657,7 +658,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                             else {
                                 /* Not in void or at void boundary - calculate normally */
                                 phi[Ny - 1][Nx - 1] = (phi[Ny - 1][Nx - 2] + phi[Ny - 2][Nx - 1]) / 2 - f[Ny - 1][Nx - 1] / (2 * lambda);
-
+                                
                             }
 
                     }
@@ -970,6 +971,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j - 1][i] + phi[j + 1][i]) * lambda - 4 * lambda * phi[j][i];
+                            
                         }
 
                     }
@@ -993,7 +995,6 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
                         else {
                             /* Not in void or at void boundary - calculate normally */
                             laplace_phi[j][i] = (phi[j][i + 1] + phi[j][i - 1] + phi[j + 1][i]) * lambda - 3 * lambda * phi[j][i];
-
                         }
 
                     }
@@ -1169,8 +1170,8 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
             for (i = 0; i < Nx; i++) {
 
                
-                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
-                    laplace_phi_minus_f_norm = laplace_phi_minus_f_norm + pow((laplace_phi[j][i] - f[j][i]), 2);
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) || ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                    laplace_phi_minus_f_norm += pow((laplace_phi[j][i] - f[j][i]), 2);
                 }
 
             }
@@ -1209,7 +1210,7 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         for (j = 0; j < Ny; j++) {
             for (i = 0; i < Nx; i++) {
                
-                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) || ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
                     integral += phi[j][i] * D_x * D_y;
                 }
 
@@ -1219,14 +1220,25 @@ int GS_nstep(double** f, double** phi, int Nx, int Ny, int D_x, int D_y, double 
         for (j = 0; j < Ny; j++) {
             for (i = 0; i < Nx; i++) {
 
-                if ( ((j < Bj) || ( j > (Bj + H_cells))) && ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
+                if ( ((j < Bj) || ( j > (Bj + H_cells))) || ((i < Bi) || (i > (Bi + H_cells)))  ) {     /* if not inside the void... */
                     phi[j][i] -= integral / (Nx * Ny - pow(H_cells, 2));
                 }
-           
+            
             }
         }
 
     }
+
+
+    FILE* fid_laplace_phi = fopen("laplace_p.txt", "w");
+    for (j = 0; j < Ny; j++) {
+        for (i = 0; i < Nx; i++) {
+            fprintf(fid_laplace_phi, "%.20lf ", laplace_phi[j][i]);
+        }
+        fprintf(fid_laplace_phi, "\n");
+    }
+    fclose(fid_laplace_phi);
+
 
 
     /* Freeing arrays made in this function */
@@ -1261,7 +1273,7 @@ int main() {
     int iter = 0;
 
     double Re = 20;  /* Problem parameters */
-    double dt = 0.01;
+    double dt = 0.001;
     double H = 1;
     double U_inlet = 1;
     double Diff = pow(10,-4);
@@ -1270,7 +1282,7 @@ int main() {
     char convective_method[] = "centraldiff";  // options are "upwind", "centraldiff", or "quick"
 
     double epsilon = pow(10, -3);
-    int max_time_steps = 20000;
+    int max_time_steps = 1000;
 
     int Nx = 500;
     int Ny = 100;
@@ -2153,6 +2165,24 @@ int main() {
             }
         }
 
+        FILE* fid_gusod = fopen("gusod.txt", "w");
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
+                fprintf(fid_gusod, "%.20lf ", grad_u_star_over_dt[j][i]);
+            }
+            fprintf(fid_gusod, "\n");
+        }
+        fclose(fid_gusod);
+
+        FILE* fid_p = fopen("pressure.txt", "w");
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
+                fprintf(fid_p, "%.20lf ", p[j][i]);
+            }
+            fprintf(fid_p, "\n");
+        }
+        fclose(fid_p);
+
 
         /* Solving for cell-centered pressure using multigrid acceleration method */
         GS_nstep(grad_u_star_over_dt, p, Nx, Ny, dx, dy, epsilon, nGS, H_cells, Bj, Bi);
@@ -2162,6 +2192,15 @@ int main() {
         /* -------------------------------------------------------------------------
         ---------------------------------- Step 3 ----------------------------------
         ------------------------------------------------------------------------- */
+
+        FILE* fid_u = fopen("u.txt", "w");
+        for (j = 0; j < Ny; j++) {
+            for (i = 0; i < Nx; i++) {
+                fprintf(fid_u, "%.20lf ", u_star[j][i]);
+            }
+            fprintf(fid_u, "\n");
+        }
+        fclose(fid_u);
 
         for (j = 0; j < Ny; j++) {
             for (i = 0; i < Nx; i++) {
