@@ -494,7 +494,7 @@ int main() {
     /* Initializing variable for step 3 */
     double u_out_total = 0;
     double u_offset;
-    double area = 0;
+    double area_out = ny * dx * dy;
     double u_out_avg;
 
     /* For scalar transport */
@@ -1482,16 +1482,17 @@ int main() {
         /* ------- Imposing Conservation of Mass ------- */
         for (j = 0; j < Ny; j++) {
             u_out_total += u[j][Nx - 1] * dx * dy;
-            area += dx * dy;
         }
 
-        u_out_avg = u_out_total / area;
+        u_out_avg = u_out_total / area_out;
         
         u_offset = U_inlet - u_out_avg;
 
         for (j = 0; j < Ny; j++) {
             u[j][Nx - 1] += u_offset;
         }
+        printf("u_out_avg = %f\n", u_out_avg);
+        printf("u_offset = %f\n", u_offset);
 
 
 
